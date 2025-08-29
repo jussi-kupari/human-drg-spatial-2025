@@ -1,4 +1,4 @@
-_targets
+_targets/
 data
 renv
 .Rproj.user
