@@ -1,0 +1,84 @@
+---
+title: "Wrangle Bhuiyan human nonneurons to Seurat"
+date: "Last edited: `r Sys.Date()`"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r}
+# Load libraries
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(tidyverse)
+})
+```
+
+```{r}
+# Load data
+seurat <- readRDS(here::here("data", "DRG_nonneurons_release.rds"))
+```
+
+```{r}
+# Subset human cells
+DefaultAssay(seurat) <- "RNA"
+seurat@assays$sketch <- NULL
+seurat@assays$integrated <- NULL
+
+# Extract metadata and counts
+metadata <- seurat@meta.data
+seurat_data <- seurat@assays[["RNA"]]@counts
+
+# Extract only human metadata
+human_metadata <-
+  metadata %>%
+  filter(Species == "Human")
+
+# Human cell names
+human_cells <- colnames(seurat_data)[colnames(seurat_data) %in% rownames(human_metadata)]
+
+# Human counts
+seurat_data <- seurat_data[, human_cells]
+
+# Fix gene names
+new_gene_names <- make.unique(rownames(seurat_data))
+rownames(seurat_data) <- new_gene_names
+
+# Create Seurat
+seurat_human <- CreateSeuratObject(seurat_data, meta.data = human_metadata)
+```
+
+```{r}
+# Preprocess to PCA
+seurat_human <-
+  NormalizeData(seurat_human) %>%
+  FindVariableFeatures() %>%
+  ScaleData() %>%
+  RunPCA(features = VariableFeatures(seurat_human),
+         npcs = 100,
+         verbose = FALSE)  
+```
+
+```{r}
+# Run harmony
+seurat_human <- harmony::RunHarmony(seurat_human, "Dataset", max_iter = 50)
+```
+
+```{r}
+# Choose PCs
+ElbowPlot(seurat_human, ndims = 100, reduction = "harmony")
+```
+
+
+```{r}
+# Cluster cells
+seurat_human <-
+  RunUMAP(seurat_human, reduction = "harmony", dims = 1:20) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:20) %>%
+  FindClusters(resolution = 0.5)
+```
+
+```{r, fig.width=12}
+DimPlot(seurat_human, group.by = "Dataset", shuffle = TRUE) +
+DimPlot(seurat_human, label = TRUE, repel = TRUE, group.by = "Atlas_annotation")
+```

@@ -1,0 +1,9 @@
+_targets
+data
+renv
+.Rproj.user
+.Rhistory
+.renvignore
+.Rprofile
+.Renviron
+*.Rproj

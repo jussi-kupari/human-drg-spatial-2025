@@ -1,0 +1,130 @@
+---
+title: "Predict cell type label for human nonneurons using Su et al."
+date: "Last edited: `r Sys.Date()`"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r}
+# Libraries
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(tidyverse)
+})
+```
+
+
+```{r}
+# Load data
+su <- readRDS("../data/drg_ra_full.rds")
+su_immune <- readRDS("../data/immune_cells_20221005.rds")
+```
+
+```{r}
+# Keep only control cells
+su_nonneurons <- 
+  su %>% 
+  subset(idents = c("ImmuneCell", "Neuron"), invert = TRUE) %>% 
+  SetIdent(value = "treatment") %>% 
+  subset(idents = "Control")
+
+su_nonneurons@meta.data <- 
+  su_nonneurons@meta.data %>% 
+  mutate(celltype = cell_class)
+
+su_immune@meta.data <- 
+  su_immune@meta.data %>% 
+  mutate(celltype = predicted.id)
+
+su_immune <-
+  su_immune %>% 
+  SetIdent(value = "treatment") %>% 
+  subset(idents = "Control")
+```
+
+```{r}
+# Merge
+su_full <- merge(su_nonneurons, su_immune, add.cell.ids = c("nn", "im"))
+```
+
+```{r}
+# Process and run harmony integration
+su_full <-
+  su_full %>%
+  NormalizeData() %>%
+  ScaleData() %>% 
+  FindVariableFeatures() %>% 
+  RunPCA(npcs = 100)
+
+su_full <- harmony::RunHarmony(su_full, "orig.ident", max_iter = 50)
+```
+
+```{r}
+# Choose PC's
+ElbowPlot(su_full, ndims = 100, reduction = "harmony")
+```
+
+```{r}
+# Cluster cells
+su_full <-
+  RunUMAP(su_full, reduction = "harmony", dims = 1:20) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:20) %>%
+  FindClusters(resolution = 0.5)
+```
+
+```{r}
+# Plot umap
+Idents(su_full) <- "celltype"
+DimPlot(su_full, label = TRUE, repel = TRUE)
+```
+
+```{r}
+# Train classifier
+n_celltypes <- su_full %>% Idents() %>% levels() %>% length()
+cl <- parallel::makePSOCKcluster(n_celltypes)
+doParallel::registerDoParallel(cl)
+
+su_full <-
+  su_full %>%
+  SetIdent(value = "celltype") %>%
+  scPred::getFeatureSpace(pvar = "celltype") %>%
+  scPred::trainModel(model = "mda", allowParallel = TRUE)
+
+parallel::stopCluster(cl)
+```
+
+```{r}
+su_full
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

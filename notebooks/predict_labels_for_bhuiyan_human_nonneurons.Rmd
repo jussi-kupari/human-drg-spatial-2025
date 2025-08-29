@@ -1,0 +1,89 @@
+---
+title: "Predict cell labels for Bhuiyan human nonneurons using Su et al."
+date: "Last edited: `r Sys.Date()`"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r}
+# Load libraries
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(tidyverse)
+})
+```
+
+```{r}
+# Load classifier
+targets::tar_load(classifier_nonneurons_su)
+su <- classifier_nonneurons_su
+rm(classifier_nonneurons_su)
+```
+
+```{r}
+# Load human data
+targets::tar_load(bhuiyan_nonneurons_seurat)
+bhuiyan <- bhuiyan_nonneurons_seurat
+rm(bhuiyan_nonneurons_seurat)
+```
+
+```{r}
+# Check classifier
+su %>% scPred::get_scpred()
+```
+
+```{r}
+# Plot classifier
+su %>% scPred::plot_probabilities()
+```
+
+```{r}
+# Classify
+bhuiyan <- scPred::scPredict(bhuiyan, su)
+```
+
+```{r}
+# Plot umap
+DimPlot(bhuiyan, label = TRUE, repel = TRUE, group.by = "scpred_no_rejection")
+```
+
+```{r}
+# Filter out unassigned cells
+bhuiyan_filtered <- 
+  bhuiyan %>% 
+  SetIdent(value = "scpred_prediction") %>% 
+  subset(idents = "unassigned", invert = TRUE)
+
+bhuiyan_filtered <-
+  bhuiyan_filtered %>%
+  NormalizeData() %>%
+  FindVariableFeatures() %>% 
+  ScaleData() %>% 
+  RunPCA(npcs = 100)
+
+bhuiyan_filtered <- harmony::RunHarmony(bhuiyan_filtered, "Dataset", max_iter = 50)
+```
+```{r}
+# Cluster again
+bhuiyan_filtered <-
+  RunUMAP(bhuiyan_filtered, reduction = "harmony", dims = 1:25) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:25) %>%
+  FindClusters(resolution = 0.5)
+```
+
+```{r, fig.width=12}
+(
+  DimPlot(
+    bhuiyan_filtered,
+    label = TRUE,
+    repel = TRUE,
+    group.by = "scpred_prediction"
+  ) +
+    NoLegend()
+) +
+  (DimPlot(bhuiyan_filtered, group.by = "Dataset", shuffle = TRUE) + NoLegend()) +
+  
+  (DimPlot(bhuiyan_filtered, label = TRUE, repel = TRUE, group.by = "Atlas_annotation") + NoLegend())
+```
+
