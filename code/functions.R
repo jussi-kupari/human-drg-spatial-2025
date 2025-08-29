@@ -149,3 +149,60 @@ predict_labels_for_bhuiyan_human_nonneurons <- function(query_seurat, classifier
   
   query_filtered
 }
+
+
+
+# === Humanize gene names for Bhuiyan et al. nonneurons ===
+humanize_genes_for_bhuiyan_nonneurons <- function(seurat) {
+  
+  # Get human orthologs for genes
+  genes <-
+    babelgene::orthologs(genes = rownames(seurat), species = "mouse", human = FALSE) %>% 
+    select(human_symbol, symbol)
+  
+  # Keep matching orthologs
+  features <- 
+    tibble(symbol = rownames(seurat)) %>% 
+    left_join(genes, join_by(symbol)) %>% 
+    distinct(symbol, .keep_all = TRUE) %>% 
+    drop_na()
+  
+  # Filter counts for human genes
+  mat <- 
+    as.matrix(GetAssayData(seurat, assay = "RNA", layer = "counts")) %>% 
+    .[rownames(.) %in% features$symbol, ]
+  
+  rownames(mat) <- features$human_symbol
+  rownames(mat) <- make.unique(rownames(mat))
+  
+  # Create Seurat
+  seurat_humanized <- CreateSeuratObject(counts = mat, meta.data = seurat@meta.data)
+  
+  # Process Seurat
+  seurat_humanized <-
+    seurat_humanized %>%
+    NormalizeData() %>%
+    FindVariableFeatures() %>% 
+    ScaleData() %>% 
+    RunPCA(npcs = 100) %>%
+    harmony::RunHarmony("Dataset", max_iter = 50)
+  
+  # Cluster Seurat
+  seurat_humanized <- 
+    RunUMAP(
+      seurat_humanized,
+      reduction = "harmony",
+      dims = 1:25
+    ) %>%
+    FindNeighbors(reduction = "harmony", dims = 1:25) %>%
+    FindClusters(resolution = 0.5)
+  
+  # Set identities
+  Idents(seurat_humanized) <- "scpred_prediction"
+  
+  # Add humanized as assay to original seurat
+  seurat@assays[["RNA_humanized"]] <- seurat_humanized@assays$RNA
+  
+  # Return original seurat with added assay
+  seurat
+}

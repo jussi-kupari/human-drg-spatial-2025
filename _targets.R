@@ -38,7 +38,10 @@ list(
   # Classify cells from Bhuiyan et al.
   tar_target(
     bhuiyan_nonneurons_classified,
-    predict_labels_for_bhuiyan_human_nonneurons(bhuiyan_nonneurons_seurat, classifier_nonneurons_su)
+    predict_labels_for_bhuiyan_human_nonneurons(bhuiyan_nonneurons_seurat, 
+                                                classifier_nonneurons_su) %>%
+      # Add RNA assay with humanized genes
+      humanize_genes_for_bhuiyan_nonneurons()
   )
   
 )

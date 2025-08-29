@@ -1,0 +1,129 @@
+---
+title: "Humanize gene names for Bhuiyan et al. nonneurons"
+date: "Last edited: `r Sys.Date()`"
+output:
+  github_document:
+    html_preview: false
+---
+
+```{r}
+# Load libraries
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(tidyverse)
+})
+```
+
+```{r}
+# Load data
+targets::tar_load(bhuiyan_nonneurons_classified)
+bhuiyan <- bhuiyan_nonneurons_classified
+rm(bhuiyan_nonneurons_classified)
+```
+
+```{r}
+# Get human orthologs
+genes <-
+  babelgene::orthologs(genes = rownames(bhuiyan), species = "mouse", human = FALSE) %>% 
+  select(human_symbol, symbol) 
+```
+
+```{r}
+# Keep matching orthologs
+features <- 
+  tibble(symbol = rownames(bhuiyan)) %>% 
+  left_join(genes, join_by(symbol)) %>% 
+  distinct(symbol, .keep_all = TRUE) %>% 
+  drop_na()
+```
+
+```{r}
+# Filter counts for human genes
+mat <- 
+  as.matrix(GetAssayData(bhuiyan, assay = "RNA", layer = "counts")) %>% 
+  .[rownames(.) %in% features$symbol, ]
+
+rownames(mat) <- features$human_symbol
+rownames(mat) <- make.unique(rownames(mat))
+```
+
+```{r}
+# Create Seurat
+bhuiyan_humanized <- CreateSeuratObject(counts = mat, meta.data = bhuiyan@meta.data)
+```
+
+```{r}
+# Process Seurat
+bhuiyan_humanized <-
+  bhuiyan_humanized %>%
+  NormalizeData() %>%
+  FindVariableFeatures() %>% 
+  ScaleData() %>% 
+  RunPCA(npcs = 100)
+
+bhuiyan_humanized <- harmony::RunHarmony(bhuiyan_humanized, "Dataset", max_iter = 50)
+```
+
+```{r}
+# Cluster Seurat
+bhuiyan_humanized <- 
+  RunUMAP(
+    bhuiyan_humanized,
+    reduction = "harmony",
+    dims = 1:25
+  ) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:25) %>%
+  FindClusters(resolution = 0.5)
+```
+
+```{r}
+# Set identities
+Idents(bhuiyan_humanized) <- "scpred_prediction"
+```
+
+
+```{r, fig.width=12}
+# Plot results as UMAP
+(
+  DimPlot(
+    bhuiyan_humanized,
+    label = TRUE,
+    repel = TRUE,
+    group.by = "scpred_prediction"
+  ) +
+    NoLegend()
+) +
+  (DimPlot(bhuiyan_humanized, group.by = "Dataset", shuffle = TRUE) + NoLegend()) +
+  
+  
+  (DimPlot(bhuiyan_humanized, label = TRUE, repel = TRUE, group.by = "Atlas_annotation") + NoLegend())
+```
+```{r}
+humanized_assay <- bhuiyan_humanized@assays$RNA
+```
+
+```{r}
+bhuiyan@assays[["humanized"]] <- humanized_assay
+```
+
+```{r}
+DefaultAssay(bhuiyan) <- "humanized"
+```
+
+```{r, fig.width=12}
+# Plot results as UMAP
+(
+  DimPlot(
+    bhuiyan,
+    label = TRUE,
+    repel = TRUE,
+    group.by = "scpred_prediction"
+  ) +
+    NoLegend()
+) +
+  (DimPlot(bhuiyan, group.by = "Dataset", shuffle = TRUE) + NoLegend()) +
+  
+  
+  (DimPlot(bhuiyan, label = TRUE, repel = TRUE, group.by = "Atlas_annotation") + NoLegend())
+```
+
